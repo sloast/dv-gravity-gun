@@ -1,0 +1,10 @@
+{
+	"Id": "gravity_gun",
+	"Version": "1.0.0",
+	"DisplayName": "Gravity Gun",
+	"Author": "sloast",
+	"EntryMethod": "gravity_gun.Main.Load",
+	"ManagerVersion": "0.27.3",
+	"Repository": "https://raw.githubusercontent.com/sloast/dv-gravity-gun/main/repository.json",
+	"HomePage": "https://github.com/sloast/dv-gravity-gun"
+}
