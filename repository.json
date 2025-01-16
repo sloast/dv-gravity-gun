@@ -1,0 +1,9 @@
+{
+	"Releases": [
+		{
+			"Id": "custom_map_image",
+			"Version": "1.0.0",
+			"DownloadUrl": "https://github.com/sloast/dv-gravity-gun/releases/download/v1.0.0/gravity_gun_v1.0.0.zip"
+		}
+	]
+}
