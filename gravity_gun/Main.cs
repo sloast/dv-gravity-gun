@@ -77,6 +77,7 @@ public class Settings : ModSettings, IDrawable
 	[Draw("InstaDerail (default false)")] public bool derail = false;
 	[Draw("Min offset to derail (default 10)")] public float derailForce = 10f;
 	[Draw("Damping (default 0.4)")] public float damping = 0.4f;
+	[Draw("Grab at CoM")] public bool useCoM = false;
 
 	public override void Save(UnityModManager.ModEntry modEntry)
 	{
@@ -98,12 +99,16 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 	public float force = Main.settings.baseForce;
 	private const float dist_mult = 1.1f;
 
+	private bool useCoM;
+
 	private State state = State.Aiming;
 
 	private TrainCar? aimedCar = null;
 	private TrainCar? grabbedCar = null;
 	private Rigidbody? grabbedRb = null;
+	private Vector3 grabLocalPos;
 	private float grabDistance;
+	private Material highlightMaterial = null!;
 
 	private void Awake()
 	{
@@ -115,6 +120,7 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 	private void Start()
 	{
 		trainCarMask = LayerMask.GetMask(["Train_Big_Collider"]);
+		highlightMaterial = radio.deleteControl.selectionMaterial;
 	}
 
 	public bool ButtonACustomAction()
@@ -125,12 +131,16 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 				float inc = Mathf.Pow(10, Mathf.Ceil(Mathf.Log10(force)) - 1);
 				force = Mathf.Round(force / inc - 1) * inc; // we love floating point error
 			}
-			UpdateDisplay();
 		}
 		else
 		{
-			if (grabDistance > 1) grabDistance /= dist_mult;
+			grabDistance /= dist_mult;
+			if (grabDistance < 1)
+			{
+				grabDistance = 1;
+			}
 		}
+		UpdateDisplay();
 
 		return true;
 	}
@@ -142,12 +152,12 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 		{
 			float inc = Mathf.Pow(10, Mathf.Floor(Mathf.Log10(force)));
 			force += inc;
-			UpdateDisplay();
 		}
 		else
 		{
 			grabDistance *= dist_mult;
 		}
+		UpdateDisplay();
 
 		return true;
 	}
@@ -155,7 +165,7 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 	{
 		switch (state) {
 			case State.Grabbed:
-				display.SetDisplay("Grabbed", $"Car: {grabbedCar?.ID}\nForce: {force}", "Release");
+				display.SetDisplay("Grabbed", $"Car: {grabbedCar?.ID}\nDistance: {grabDistance}\nForce: {force}", "Release");
 				break;
 
 			case State.Aiming:
@@ -185,7 +195,8 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 	private bool AimAtCar(bool select = false)
 	{
 		RaycastHit hit;
-		if (!Physics.Raycast(signalOrigin.position, signalOrigin.forward, out hit, 100f, trainCarMask))
+
+		if (!Physics.Raycast(signalOrigin.position, signalOrigin.forward, out hit, 500f, trainCarMask))
 		{
 			aimedCar = null;
 			return false;
@@ -193,21 +204,22 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 
 		aimedCar = TrainCar.Resolve(hit.transform.root);
 
-		if (select)
+		if (select && aimedCar is not null)
 		{
 			grabbedCar = aimedCar;
-			grabDistance = (grabbedCar.transform.position - signalOrigin.position).magnitude;
+			grabDistance = useCoM ? (grabbedCar.transform.position - signalOrigin.position).magnitude : hit.distance;
 			grabbedRb = grabbedCar.GetComponent<Rigidbody>();
+			grabLocalPos = grabbedCar.transform.InverseTransformPoint(hit.point);
 		}
 
-		return true;
+		return aimedCar is not null;
 	}
 
 	private void HighlightCar(TrainCar car)
 	{
 		MethodInfo dynMethod = typeof(CommsRadioCarDeleter).GetMethod("HighlightCar",
 			BindingFlags.NonPublic | BindingFlags.Instance);
-		dynMethod.Invoke(radio.deleteControl, [car, radio.deleteControl.selectionMaterial]);
+		dynMethod.Invoke(radio.deleteControl, [car, highlightMaterial]);
 	}
 
 	private void ClearHighlightCar()
@@ -238,19 +250,36 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 				break;
 
 			case State.Grabbed:
-				Vector3 carPosition = grabbedCar!.transform.position;
+				useCoM = Main.settings.useCoM;
+
+				Vector3 carPosition = useCoM ? grabbedCar!.transform.position : grabbedCar!.transform.TransformPoint(grabLocalPos);
 				Vector3 aimPosition = signalOrigin.position + (signalOrigin.forward * grabDistance);
 
 				Vector3 diff = aimPosition - carPosition;
 
 				if (diff.y > Main.settings.derailForce && !grabbedCar.derailed) grabbedCar.Derail();
 
-				grabbedRb?.AddForce(diff * force);
-				grabbedRb?.AddForce(-grabbedRb.velocity * force * Main.settings.damping); // damping
+				if (useCoM)
+				{
+					grabbedRb?.AddForce(diff * force);
+					grabbedRb?.AddForce(-grabbedRb.velocity * force * Main.settings.damping); // damping
+				}
+				else
+				{
+					grabbedRb?.AddForceAtPosition(diff * force, carPosition);
+					grabbedRb?.AddForceAtPosition(-grabbedRb.GetPointVelocity(carPosition) * force * Main.settings.damping, carPosition);
+				}
 
 				if (Input.GetMouseButtonDown(2)) // throw car
 				{
-					grabbedRb?.AddForce(signalOrigin.forward * force * Main.settings.pushForce, ForceMode.Impulse);
+					if (useCoM)
+					{
+						grabbedRb?.AddForce(signalOrigin.forward * force * Main.settings.pushForce, ForceMode.Impulse);
+					}
+					else
+					{
+						grabbedRb?.AddForceAtPosition(signalOrigin.forward * force * Main.settings.pushForce, carPosition, ForceMode.Impulse);
+					}
 					OnUse(); // release
 				}
 
@@ -260,6 +289,7 @@ internal class CommsRadioGravityGun : MonoBehaviour, ICommsRadioMode
 
 	public void OnUse()
 	{
+		useCoM = Main.settings.useCoM;
 		switch (state)
 		{
 			case State.Aiming:
