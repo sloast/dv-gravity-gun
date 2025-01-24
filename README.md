@@ -1,5 +1,5 @@
-Gravity Gun v1.0.0
-==================
+Gravity Gun
+===========
 
 Lets you push train cars around, pick them up, and fling them many miles away :)
 
@@ -11,7 +11,7 @@ Installing
 Go to the releases tab on the right, download the latest release, and install it with [UMM](https://www.nexusmods.com/site/mods/21).
 
 Usage
-------
+-----
 
 - Open the radio and go to "Gravity Gun"
 - Click on a car to pick it up
